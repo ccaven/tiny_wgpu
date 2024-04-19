@@ -1,6 +1,7 @@
 use std::collections::HashMap;
-use std::hash::Hash;
 use std::sync::Arc;
+
+use wgpu::ShaderStages;
 
 pub struct Compute {
     pub instance: wgpu::Instance,
@@ -24,10 +25,17 @@ impl Compute {
         limits.max_push_constant_size = 4;
         limits.max_storage_buffers_per_shader_stage = 10;
 
+        let mut features = wgpu::Features::PUSH_CONSTANTS;
+
+        features |= wgpu::Features::BGRA8UNORM_STORAGE;
+        features |= wgpu::Features::TIMESTAMP_QUERY;
+        features |= wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
+        features |= wgpu::Features::CLEAR_TEXTURE;
+
         let (device, queue) = adapter.request_device(
             &wgpu::DeviceDescriptor {
                 label: None,
-                required_features: wgpu::Features::all_native_mask(),
+                required_features: features,
                 required_limits: limits,
                 
             }, 
@@ -43,47 +51,55 @@ impl Compute {
     }
 }
 
-pub enum BindGroupItem<Label> {
-    StorageBuffer { label: Label, min_binding_size: u64, read_only: bool },
-    UniformBuffer { label: Label, min_binding_size: u64 },
-    Texture { label: Label },
-    StorageTexture { label: Label, access: wgpu::StorageTextureAccess }
+pub enum BindGroupItem<'a> {
+    StorageBuffer { label: &'a str, min_binding_size: u64, read_only: bool },
+    UniformBuffer { label: &'a str, min_binding_size: u64 },
+    Texture { label: &'a str },
+    StorageTexture { label: &'a str, access: wgpu::StorageTextureAccess },
+    Sampler { label: &'a str }
 }
 
-pub struct PipelineItem<'a, Label> {
-    pub label: Label,
+pub struct PipelineItem<'a> {
+    pub label: &'a str,
     pub entry_point: &'a str
 }
 
-pub struct ComputeProgram<Label: Hash + Eq> {
-    pub module: wgpu::ShaderModule,
-    pub buffers: HashMap<Label, wgpu::Buffer>,
-    pub textures: HashMap<Label, wgpu::Texture>,
-    pub texture_views: HashMap<Label, wgpu::TextureView>,
-    pub bind_groups: HashMap<Label, wgpu::BindGroup>,
-    pub bind_group_layouts: HashMap<Label, wgpu::BindGroupLayout>,
-    pub pipelines: HashMap<Label, wgpu::ComputePipeline>,
-    pub compute: Arc<Compute>
+pub struct ComputeProgram<'a> {
+    pub compute: Arc<Compute>,
+    pub modules: HashMap<&'a str, wgpu::ShaderModule>,
+    pub buffers: HashMap<&'a str, wgpu::Buffer>,
+    pub textures: HashMap<&'a str, wgpu::Texture>,
+    pub texture_views: HashMap<&'a str, wgpu::TextureView>,
+    pub samplers: HashMap<&'a str, wgpu::Sampler>,
+    pub bind_groups: HashMap<&'a str, wgpu::BindGroup>,
+    pub bind_group_layouts: HashMap<&'a str, wgpu::BindGroupLayout>,
+    pub compute_pipelines: HashMap<&'a str, wgpu::ComputePipeline>,
+    pub render_pipelines: HashMap<&'a str, wgpu::RenderPipeline>,
 }
 
-impl<Label: Hash + Eq + Copy> ComputeProgram<Label> {
+impl<'a> ComputeProgram<'a> {
 
-    pub fn new<'a>(compute: Arc<Compute>, shader_source: wgpu::ShaderModuleDescriptor) -> Self {
-        let module = compute.device.create_shader_module(shader_source);
-
+    pub fn new(compute: Arc<Compute>) -> Self {
         Self {
-            module,
+            modules: HashMap::new(),
             buffers: HashMap::new(),
             textures: HashMap::new(),
             texture_views: HashMap::new(),
+            samplers: HashMap::new(),
             bind_groups: HashMap::new(),
             bind_group_layouts: HashMap::new(),
-            pipelines: HashMap::new(),
+            compute_pipelines: HashMap::new(),
+            render_pipelines: HashMap::new(),
             compute
         }
     }
 
-    pub fn add_buffer(&mut self, label: Label, usage: wgpu::BufferUsages, size: u64) {
+    pub fn add_module<'b: 'a>(&mut self, label: &'b str, shader: wgpu::ShaderModuleDescriptor) {
+        let module = self.compute.device.create_shader_module(shader);
+        self.modules.insert(label, module);
+    }
+
+    pub fn add_buffer<'b: 'a>(& mut self, label: &'b str, usage: wgpu::BufferUsages, size: u64) {
         let buffer = self.compute.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: size.into(),
@@ -94,7 +110,7 @@ impl<Label: Hash + Eq + Copy> ComputeProgram<Label> {
         self.buffers.insert(label, buffer);
     }
 
-    pub fn add_texture(&mut self, label: Label, usage: wgpu::TextureUsages, format: wgpu::TextureFormat, size: wgpu::Extent3d) {
+    pub fn add_texture<'b: 'a>(&mut self, label: &'b str, usage: wgpu::TextureUsages, format: wgpu::TextureFormat, size: wgpu::Extent3d) {
         let texture = self.compute.device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size,
@@ -106,17 +122,19 @@ impl<Label: Hash + Eq + Copy> ComputeProgram<Label> {
             view_formats: &[]
         });
 
-        if usage.contains(wgpu::TextureUsages::TEXTURE_BINDING) {
-            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-            self.texture_views.insert(label.clone(), view);
-        }
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+        self.texture_views.insert(label, view);
         self.textures.insert(label, texture);
-
         
     }
+
+    pub fn add_sampler<'b: 'a>(&mut self, label: &'b str, descriptor: wgpu::SamplerDescriptor) {
+        let sampler = self.compute.device.create_sampler(&descriptor);
+        self.samplers.insert(label, sampler);
+    }
     
-    pub fn add_bind_group(&mut self, label: Label, items: Vec<BindGroupItem<Label>>) {
+    pub fn add_bind_group<'b: 'a>(&mut self, label: &'b str, items: &[BindGroupItem]) {
         let mut bind_group_layout_entries = Vec::new();
         let mut bind_group_entries = Vec::new();
 
@@ -125,7 +143,8 @@ impl<Label: Hash + Eq + Copy> ComputeProgram<Label> {
                 BindGroupItem::StorageBuffer { label, min_binding_size, read_only } => {
                     bind_group_layout_entries.push(wgpu::BindGroupLayoutEntry {
                         binding: i as u32,
-                        visibility: wgpu::ShaderStages::COMPUTE,
+                        // Cannot use storage buffers in vertex shader without feature flag
+                        visibility: wgpu::ShaderStages::COMPUTE | wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer { 
                             ty: wgpu::BufferBindingType::Storage { read_only: *read_only }, 
                             has_dynamic_offset: false, 
@@ -142,7 +161,7 @@ impl<Label: Hash + Eq + Copy> ComputeProgram<Label> {
                 BindGroupItem::UniformBuffer { label, min_binding_size } => {
                     bind_group_layout_entries.push(wgpu::BindGroupLayoutEntry {
                         binding: i as u32,
-                        visibility: wgpu::ShaderStages::COMPUTE,
+                        visibility: wgpu::ShaderStages::all(),
                         ty: wgpu::BindingType::Buffer { 
                             ty: wgpu::BufferBindingType::Uniform, 
                             has_dynamic_offset: false, 
@@ -161,7 +180,7 @@ impl<Label: Hash + Eq + Copy> ComputeProgram<Label> {
 
                     bind_group_layout_entries.push(wgpu::BindGroupLayoutEntry {
                         binding: i as u32,
-                        visibility: wgpu::ShaderStages::COMPUTE,
+                        visibility: wgpu::ShaderStages::all(),
                         ty: wgpu::BindingType::Texture { 
                             sample_type,
                             view_dimension: wgpu::TextureViewDimension::D2, 
@@ -179,13 +198,33 @@ impl<Label: Hash + Eq + Copy> ComputeProgram<Label> {
                     let format = self.textures[label].format();
                     bind_group_layout_entries.push(wgpu::BindGroupLayoutEntry {
                         binding: i as u32,
-                        visibility: wgpu::ShaderStages::COMPUTE,
+                        visibility: wgpu::ShaderStages::COMPUTE | wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::StorageTexture { 
                             access: *access, 
                             format, 
                             view_dimension: wgpu::TextureViewDimension::D2
                         },
                         count: None
+                    });
+
+                    bind_group_entries.push(wgpu::BindGroupEntry {
+                        binding: i as u32,
+                        resource: wgpu::BindingResource::TextureView(&self.texture_views[label])
+                    });
+                },
+                BindGroupItem::Sampler { label } => {
+                    bind_group_layout_entries.push(wgpu::BindGroupLayoutEntry {
+                        binding: i as u32,
+                        ty: wgpu::BindingType::Sampler(
+                            wgpu::SamplerBindingType::Filtering
+                        ),
+                        visibility: ShaderStages::all(),
+                        count: None
+                    });
+
+                    bind_group_entries.push(wgpu::BindGroupEntry {
+                        binding: i as u32,
+                        resource: wgpu::BindingResource::Sampler(&self.samplers[label])
                     });
                 }
             }
@@ -206,13 +245,45 @@ impl<Label: Hash + Eq + Copy> ComputeProgram<Label> {
         self.bind_group_layouts.insert(label, bind_group_layout);
     }
 
-    pub fn add_pipelines<'a>(
-        &mut self, 
-        bind_groups: Vec<Label>, 
-        items: Vec<PipelineItem<'a, Label>>,
-        push_constant_ranges: &'a [wgpu::PushConstantRange]
+    pub fn add_compute_pipelines<'b: 'a>(
+        &mut self,
+        module: &'b str,
+        bind_groups: &[&'b str],
+        entry_points: &[&'b str],
+        push_constant_ranges: &[wgpu::PushConstantRange]
     ) {
-        // Compute pipeline layout
+        let bind_group_layouts: Vec<_> = bind_groups
+            .iter()
+            .map(|x| &self.bind_group_layouts[x])
+            .collect();
+
+        let pipeline_layout = self.compute.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &bind_group_layouts,
+            push_constant_ranges
+        });                
+        
+        for entry_point in entry_points {
+            let pipeline = self.compute.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: None,
+                layout: Some(&pipeline_layout),
+                module: &self.modules[module],
+                entry_point: &entry_point
+            });
+
+            self.compute_pipelines.insert(&entry_point, pipeline);
+        }
+    }
+
+    pub fn add_render_pipelines<'b: 'a>(
+        &mut self,
+        module: &'b str,
+        bind_groups: &[&'b str],
+        entry_points: &[(&'b str, (&'b str, &'b str))],
+        push_constant_ranges: &[wgpu::PushConstantRange],
+        targets: &[Option<wgpu::ColorTargetState>],
+        vertex_buffer_layouts: &[wgpu::VertexBufferLayout]
+    ) {
         let bind_group_layouts: Vec<_> = bind_groups
             .iter()
             .map(|x| &self.bind_group_layouts[x])
@@ -224,15 +295,29 @@ impl<Label: Hash + Eq + Copy> ComputeProgram<Label> {
             push_constant_ranges
         });
 
-        for item in items.iter() {
-            let pipeline = self.compute.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        for (name, (vs_entry_point, fs_entry_point)) in entry_points {
+
+            let render_pipeline = self.compute.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: None,
                 layout: Some(&pipeline_layout),
-                module: &self.module,
-                entry_point: &item.entry_point
+                vertex: wgpu::VertexState {
+                    module: &self.modules[module],
+                    entry_point: &vs_entry_point,
+                    buffers: vertex_buffer_layouts
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &self.modules[module],
+                    entry_point: &fs_entry_point,
+                    targets
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
             });
 
-            self.pipelines.insert(item.label, pipeline);
+            self.render_pipelines.insert(name, render_pipeline);
         }
+
     }
 }
