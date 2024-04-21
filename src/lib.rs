@@ -245,6 +245,16 @@ impl<'a> ComputeProgram<'a> {
         self.bind_group_layouts.insert(label, bind_group_layout);
     }
 
+    pub fn copy_buffer_to_buffer_full<'b: 'a>(&self, encoder: &mut wgpu::CommandEncoder, buffer_a: &'b str, buffer_b: &'b str) {
+        encoder.copy_buffer_to_buffer(
+            &self.buffers[buffer_a], 
+            0, 
+            &self.buffers[buffer_b],
+            0, 
+            self.buffers[buffer_b].size()
+        );
+    }
+
     pub fn add_compute_pipelines<'b: 'a>(
         &mut self,
         module: &'b str,
