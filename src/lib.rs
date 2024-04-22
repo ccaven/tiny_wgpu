@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use wgpu::ShaderStages;
+use wgpu::{BufferUsages, ShaderStages};
 
 pub struct Compute {
     pub instance: wgpu::Instance,
@@ -75,22 +75,26 @@ pub struct ComputeProgram<'a> {
     pub bind_group_layouts: HashMap<&'a str, wgpu::BindGroupLayout>,
     pub compute_pipelines: HashMap<&'a str, wgpu::ComputePipeline>,
     pub render_pipelines: HashMap<&'a str, wgpu::RenderPipeline>,
+    
+    staging_buffers: HashMap<&'a str, wgpu::Buffer>,
+    staging_receivers: HashMap<&'a str, flume::Receiver<Result<(), wgpu::BufferAsyncError>>>
 }
 
 impl<'a> ComputeProgram<'a> {
-
     pub fn new(compute: Arc<Compute>) -> Self {
         Self {
+            compute,
             modules: HashMap::new(),
             buffers: HashMap::new(),
+            staging_buffers: HashMap::new(),
+            staging_receivers: HashMap::new(),
             textures: HashMap::new(),
             texture_views: HashMap::new(),
             samplers: HashMap::new(),
             bind_groups: HashMap::new(),
             bind_group_layouts: HashMap::new(),
             compute_pipelines: HashMap::new(),
-            render_pipelines: HashMap::new(),
-            compute
+            render_pipelines: HashMap::new()
         }
     }
 
@@ -99,7 +103,7 @@ impl<'a> ComputeProgram<'a> {
         self.modules.insert(label, module);
     }
 
-    pub fn add_buffer<'b: 'a>(& mut self, label: &'b str, usage: wgpu::BufferUsages, size: u64) {
+    pub fn add_buffer<'b: 'a>(&mut self, label: &'b str, usage: wgpu::BufferUsages, size: u64) {
         let buffer = self.compute.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: size.into(),
@@ -108,6 +112,15 @@ impl<'a> ComputeProgram<'a> {
         });
 
         self.buffers.insert(label, buffer);
+    }
+
+    pub fn add_staging_buffer<'b: 'a>(&mut self, label: &'b str) {
+        self.staging_buffers.insert(label, self.compute.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+            size: self.buffers[label].size(),
+            mapped_at_creation: false
+        }));
     }
 
     pub fn add_texture<'b: 'a>(&mut self, label: &'b str, usage: wgpu::TextureUsages, format: wgpu::TextureFormat, size: wgpu::Extent3d) {
@@ -253,6 +266,37 @@ impl<'a> ComputeProgram<'a> {
             0, 
             self.buffers[buffer_b].size()
         );
+    }
+
+    pub fn copy_buffer_to_staging<'b: 'a>(&self, encoder: &mut wgpu::CommandEncoder, label: &'b str) {
+        encoder.copy_buffer_to_buffer(
+            &self.buffers[label], 
+            0, 
+            &self.staging_buffers[label],
+            0, 
+            self.buffers[label].size()
+        );
+    }
+
+    pub fn prepare_staging_buffer<'b: 'a>(&mut self, label: &'b str) {
+        let slice = self.staging_buffers[label].slice(..);
+        let (sender, receiver) = flume::bounded(1);
+        slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
+        self.staging_receivers.insert(label, receiver);
+    }
+
+    pub async fn read_staging_buffer<'b: 'a>(&self, label: &'b str, dst: &mut [u8]) {
+        // Wait for the mapping to finish
+        self.staging_receivers[label].recv_async().await.unwrap().unwrap();
+
+        // Read data
+        {
+            let data = self.staging_buffers[label].slice(..).get_mapped_range();
+            dst.copy_from_slice(&data);
+        }
+
+        // Unmap for the GPU to use again
+        self.staging_buffers[label].unmap();
     }
 
     pub fn add_compute_pipelines<'b: 'a>(
