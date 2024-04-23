@@ -8,3 +8,8 @@ edition = "2021"
 [dependencies]
 flume = "0.11.0"
 wgpu = "0.19.3"
+
+[dev-dependencies]
+pollster = "0.3.0"
+winit = "0.29.15"
+bytemuck = "1.15.0"
