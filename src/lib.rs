@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-use std::sync::Arc;
-
 use wgpu::{BufferUsages, ShaderStages};
 
 pub struct Compute {
@@ -11,7 +9,7 @@ pub struct Compute {
 }
 
 impl Compute {
-    pub async fn init() -> Arc<Self> {
+    pub async fn new() -> Self {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { 
             backends: wgpu::Backends::PRIMARY, 
             flags: wgpu::InstanceFlags::empty(), 
@@ -23,7 +21,7 @@ impl Compute {
 
         let mut limits = wgpu::Limits::default();
         limits.max_push_constant_size = 4;
-        limits.max_storage_buffers_per_shader_stage = 10;
+        limits.max_storage_buffers_per_shader_stage = 8;
 
         let mut features = wgpu::Features::PUSH_CONSTANTS;
 
@@ -42,12 +40,12 @@ impl Compute {
             None
         ).await.unwrap();
 
-        Arc::new(Self {
+        Self {
             instance,
             adapter,
             device,
             queue
-        })
+        }
     }
 }
 
@@ -64,8 +62,7 @@ pub struct PipelineItem<'a> {
     pub entry_point: &'a str
 }
 
-pub struct ComputeProgram<'a> {
-    pub compute: Arc<Compute>,
+pub struct Storage<'a> {
     pub modules: HashMap<&'a str, wgpu::ShaderModule>,
     pub buffers: HashMap<&'a str, wgpu::Buffer>,
     pub textures: HashMap<&'a str, wgpu::Texture>,
@@ -80,51 +77,58 @@ pub struct ComputeProgram<'a> {
     staging_receivers: HashMap<&'a str, flume::Receiver<Result<(), wgpu::BufferAsyncError>>>
 }
 
-impl<'a> ComputeProgram<'a> {
-    pub fn new(compute: Arc<Compute>) -> Self {
-        Self {
-            compute,
-            modules: HashMap::new(),
-            buffers: HashMap::new(),
-            staging_buffers: HashMap::new(),
-            staging_receivers: HashMap::new(),
-            textures: HashMap::new(),
-            texture_views: HashMap::new(),
-            samplers: HashMap::new(),
-            bind_groups: HashMap::new(),
-            bind_group_layouts: HashMap::new(),
-            compute_pipelines: HashMap::new(),
-            render_pipelines: HashMap::new()
+impl<'a> Default for Storage<'a> {
+    fn default() -> Self {
+        Self { 
+            modules: Default::default(), 
+            buffers: Default::default(), 
+            textures: Default::default(), 
+            texture_views: Default::default(), 
+            samplers: Default::default(), 
+            bind_groups: Default::default(), 
+            bind_group_layouts: Default::default(), 
+            compute_pipelines: Default::default(), 
+            render_pipelines: Default::default(), 
+            staging_buffers: Default::default(), 
+            staging_receivers: Default::default()
         }
     }
+}
 
-    pub fn add_module<'b: 'a>(&mut self, label: &'b str, shader: wgpu::ShaderModuleDescriptor) {
-        let module = self.compute.device.create_shader_module(shader);
-        self.modules.insert(label, module);
-    }
+pub trait ComputeProgram<'a> {
+    fn storage(&self) -> &Storage<'a>;
+    fn storage_mut(&mut self) -> &mut Storage<'a>;
+    fn compute(&self) -> &Compute;
 
-    pub fn add_buffer<'b: 'a>(&mut self, label: &'b str, usage: wgpu::BufferUsages, size: u64) {
-        let buffer = self.compute.device.create_buffer(&wgpu::BufferDescriptor {
+    fn add_buffer<'b: 'a>(&mut self, label: &'b str, usage: wgpu::BufferUsages, size: u64) {
+        let buffer = self.compute().device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: size.into(),
             usage,
             mapped_at_creation: false
         });
 
-        self.buffers.insert(label, buffer);
+        self.storage_mut().buffers.insert(label, buffer);
     }
-
-    pub fn add_staging_buffer<'b: 'a>(&mut self, label: &'b str) {
-        self.staging_buffers.insert(label, self.compute.device.create_buffer(&wgpu::BufferDescriptor {
+    
+    fn add_module<'b: 'a>(&mut self, label: &'b str, shader: wgpu::ShaderModuleDescriptor) {
+        let module = self.compute().device.create_shader_module(shader);
+        self.storage_mut().modules.insert(label, module);
+    }
+    
+    fn add_staging_buffer<'b: 'a>(&mut self, label: &'b str) {
+        let buffer = self.compute().device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
-            size: self.buffers[label].size(),
+            size: self.storage().buffers[label].size(),
             mapped_at_creation: false
-        }));
-    }
+        });
 
-    pub fn add_texture<'b: 'a>(&mut self, label: &'b str, usage: wgpu::TextureUsages, format: wgpu::TextureFormat, size: wgpu::Extent3d) {
-        let texture = self.compute.device.create_texture(&wgpu::TextureDescriptor {
+        self.storage_mut().staging_buffers.insert(label, buffer);
+    }
+    
+    fn add_texture<'b: 'a>(&mut self, label: &'b str, usage: wgpu::TextureUsages, format: wgpu::TextureFormat, size: wgpu::Extent3d) {
+        let texture = self.compute().device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size,
             usage,
@@ -137,17 +141,16 @@ impl<'a> ComputeProgram<'a> {
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        self.texture_views.insert(label, view);
-        self.textures.insert(label, texture);
-        
-    }
-
-    pub fn add_sampler<'b: 'a>(&mut self, label: &'b str, descriptor: wgpu::SamplerDescriptor) {
-        let sampler = self.compute.device.create_sampler(&descriptor);
-        self.samplers.insert(label, sampler);
+        self.storage_mut().texture_views.insert(label, view);
+        self.storage_mut().textures.insert(label, texture);
     }
     
-    pub fn add_bind_group<'b: 'a>(&mut self, label: &'b str, items: &[BindGroupItem]) {
+    fn add_sampler<'b: 'a>(&mut self, label: &'b str, descriptor: wgpu::SamplerDescriptor) {
+        let sampler = self.compute().device.create_sampler(&descriptor);
+        self.storage_mut().samplers.insert(label, sampler);
+    }
+    
+    fn add_bind_group<'b: 'a>(&mut self, label: &'b str, items: &[BindGroupItem]) {
         let mut bind_group_layout_entries = Vec::new();
         let mut bind_group_entries = Vec::new();
 
@@ -168,7 +171,7 @@ impl<'a> ComputeProgram<'a> {
 
                     bind_group_entries.push(wgpu::BindGroupEntry {
                         binding: i as u32,
-                        resource: self.buffers[label].as_entire_binding()
+                        resource: self.storage().buffers[label].as_entire_binding()
                     });
                 },
                 BindGroupItem::UniformBuffer { label, min_binding_size } => {
@@ -185,11 +188,11 @@ impl<'a> ComputeProgram<'a> {
 
                     bind_group_entries.push(wgpu::BindGroupEntry {
                         binding: i as u32,
-                        resource: self.buffers[label].as_entire_binding()
+                        resource: self.storage().buffers[label].as_entire_binding()
                     });
                 },
                 BindGroupItem::Texture { label } => {
-                    let sample_type = self.textures[label].format().sample_type(None, None).unwrap();
+                    let sample_type = self.storage().textures[label].format().sample_type(None, None).unwrap();
 
                     bind_group_layout_entries.push(wgpu::BindGroupLayoutEntry {
                         binding: i as u32,
@@ -204,11 +207,11 @@ impl<'a> ComputeProgram<'a> {
 
                     bind_group_entries.push(wgpu::BindGroupEntry {
                         binding: i as u32,
-                        resource: wgpu::BindingResource::TextureView(&self.texture_views[label])
+                        resource: wgpu::BindingResource::TextureView(&self.storage().texture_views[label])
                     });
                 },
                 BindGroupItem::StorageTexture { label, access } => {
-                    let format = self.textures[label].format();
+                    let format = self.storage().textures[label].format();
                     bind_group_layout_entries.push(wgpu::BindGroupLayoutEntry {
                         binding: i as u32,
                         visibility: wgpu::ShaderStages::COMPUTE | wgpu::ShaderStages::FRAGMENT,
@@ -222,7 +225,7 @@ impl<'a> ComputeProgram<'a> {
 
                     bind_group_entries.push(wgpu::BindGroupEntry {
                         binding: i as u32,
-                        resource: wgpu::BindingResource::TextureView(&self.texture_views[label])
+                        resource: wgpu::BindingResource::TextureView(&self.storage().texture_views[label])
                     });
                 },
                 BindGroupItem::Sampler { label } => {
@@ -237,69 +240,69 @@ impl<'a> ComputeProgram<'a> {
 
                     bind_group_entries.push(wgpu::BindGroupEntry {
                         binding: i as u32,
-                        resource: wgpu::BindingResource::Sampler(&self.samplers[label])
+                        resource: wgpu::BindingResource::Sampler(&self.storage().samplers[label])
                     });
                 }
             }
         }
 
-        let bind_group_layout = self.compute.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let bind_group_layout = self.compute().device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &bind_group_layout_entries
         });
 
-        let bind_group = self.compute.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let bind_group = self.compute().device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &bind_group_layout,
             entries: &bind_group_entries
         });
 
-        self.bind_groups.insert(label, bind_group);
-        self.bind_group_layouts.insert(label, bind_group_layout);
+        self.storage_mut().bind_groups.insert(label, bind_group);
+        self.storage_mut().bind_group_layouts.insert(label, bind_group_layout);
     }
-
-    pub fn copy_buffer_to_buffer_full<'b: 'a>(&self, encoder: &mut wgpu::CommandEncoder, buffer_a: &'b str, buffer_b: &'b str) {
+    
+    fn copy_buffer_to_buffer_full<'b: 'a>(&self, encoder: &mut wgpu::CommandEncoder, buffer_a: &'b str, buffer_b: &'b str) {
         encoder.copy_buffer_to_buffer(
-            &self.buffers[buffer_a], 
+            &self.storage().buffers[buffer_a], 
             0, 
-            &self.buffers[buffer_b],
+            &self.storage().buffers[buffer_b],
             0, 
-            self.buffers[buffer_b].size()
+            self.storage().buffers[buffer_b].size()
         );
     }
-
-    pub fn copy_buffer_to_staging<'b: 'a>(&self, encoder: &mut wgpu::CommandEncoder, label: &'b str) {
+    
+    fn copy_buffer_to_staging<'b: 'a>(&self, encoder: &mut wgpu::CommandEncoder, label: &'b str) {
         encoder.copy_buffer_to_buffer(
-            &self.buffers[label], 
+            &self.storage().buffers[label], 
             0, 
-            &self.staging_buffers[label],
+            &self.storage().staging_buffers[label],
             0, 
-            self.buffers[label].size()
+            self.storage().buffers[label].size()
         );
     }
-
-    pub fn prepare_staging_buffer<'b: 'a>(&mut self, label: &'b str) {
-        let slice = self.staging_buffers[label].slice(..);
+    
+    fn prepare_staging_buffer<'b: 'a>(&mut self, label: &'b str) {
+        let slice = self.storage().staging_buffers[label].slice(..);
         let (sender, receiver) = flume::bounded(1);
         slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
-        self.staging_receivers.insert(label, receiver);
+        self.storage_mut().staging_receivers.insert(label, receiver);
     }
-
-    pub async fn read_staging_buffer<'b: 'a>(&self, label: &'b str, dst: &mut [u8]) {
+    
+    fn read_staging_buffer<'b: 'a>(&mut self, label: &'b str, dst: &mut [u8]) {
         // Wait for the mapping to finish
-        self.staging_receivers[label].recv_async().await.unwrap().unwrap();
+        self.storage().staging_receivers[label].recv().unwrap().unwrap();
 
         // Read data
         {
-            let data = self.staging_buffers[label].slice(..).get_mapped_range();
+            let data = self.storage().staging_buffers[label].slice(..).get_mapped_range();
             dst.copy_from_slice(&data);
         }
 
         // Unmap for the GPU to use again
-        self.staging_buffers[label].unmap();
+        self.storage_mut().staging_buffers[label].unmap();
     }
-
-    pub fn add_compute_pipelines<'b: 'a>(
+    
+    fn add_compute_pipelines<'b: 'a>(
         &mut self,
         module: &'b str,
         bind_groups: &[&'b str],
@@ -308,28 +311,28 @@ impl<'a> ComputeProgram<'a> {
     ) {
         let bind_group_layouts: Vec<_> = bind_groups
             .iter()
-            .map(|x| &self.bind_group_layouts[x])
+            .map(|x| &self.storage().bind_group_layouts[x])
             .collect();
 
-        let pipeline_layout = self.compute.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let pipeline_layout = self.compute().device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &bind_group_layouts,
             push_constant_ranges
         });                
         
         for entry_point in entry_points {
-            let pipeline = self.compute.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            let pipeline = self.compute().device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: None,
                 layout: Some(&pipeline_layout),
-                module: &self.modules[module],
+                module: &self.storage().modules[module],
                 entry_point: &entry_point
             });
 
-            self.compute_pipelines.insert(&entry_point, pipeline);
+            self.storage_mut().compute_pipelines.insert(&entry_point, pipeline);
         }
     }
-
-    pub fn add_render_pipelines<'b: 'a>(
+    
+    fn add_render_pipelines<'b: 'a>(
         &mut self,
         module: &'b str,
         bind_groups: &[&'b str],
@@ -340,27 +343,26 @@ impl<'a> ComputeProgram<'a> {
     ) {
         let bind_group_layouts: Vec<_> = bind_groups
             .iter()
-            .map(|x| &self.bind_group_layouts[x])
+            .map(|x| &self.storage().bind_group_layouts[x])
             .collect();
 
-        let pipeline_layout = self.compute.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let pipeline_layout = self.compute().device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &bind_group_layouts,
             push_constant_ranges
         });
 
         for (name, (vs_entry_point, fs_entry_point)) in entry_points {
-
-            let render_pipeline = self.compute.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            let render_pipeline = self.compute().device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: None,
                 layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
-                    module: &self.modules[module],
+                    module: &self.storage().modules[module],
                     entry_point: &vs_entry_point,
                     buffers: vertex_buffer_layouts
                 },
                 fragment: Some(wgpu::FragmentState {
-                    module: &self.modules[module],
+                    module: &self.storage().modules[module],
                     entry_point: &fs_entry_point,
                     targets
                 }),
@@ -370,8 +372,7 @@ impl<'a> ComputeProgram<'a> {
                 multiview: None,
             });
 
-            self.render_pipelines.insert(name, render_pipeline);
+            self.storage_mut().render_pipelines.insert(name, render_pipeline);
         }
-
     }
 }

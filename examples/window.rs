@@ -1,27 +1,52 @@
 use pollster::FutureExt;
 use winit::{event::{Event, WindowEvent}, event_loop::EventLoop, window::Window};
+
+use tiny_wgpu::{Storage, Compute, ComputeProgram};
+
+struct WindowExample<'a> {
+    storage: tiny_wgpu::Storage<'a>,
+    compute: tiny_wgpu::Compute,
+    surface: wgpu::Surface<'a>
+}
+
+impl<'a> ComputeProgram<'a> for WindowExample<'a> {
+    fn storage(&self) -> &Storage<'a> {
+        &self.storage
+    }
+
+    fn storage_mut(&mut self) -> &mut Storage<'a> {
+        &mut self.storage
+    }
+
+    fn compute(&self) -> &Compute {
+        &self.compute
+    }
+}
+
 fn main() {
 
     let event_loop = EventLoop::new().unwrap();
     let window = Window::new(&event_loop).unwrap();
 
-    let compute = tiny_wgpu::Compute::init().block_on();
+    let compute = Compute::new().block_on();
 
     let surface = compute.instance.create_surface(&window).unwrap();
 
-    let mut program = tiny_wgpu::ComputeProgram::new(compute.clone());
+    let storage = Default::default();
+    
+    let mut program = WindowExample { compute, surface, storage };
 
     program.add_module("window", wgpu::include_wgsl!("window.wgsl"));
 
-    let swapchain_capabilities = surface.get_capabilities(&compute.adapter);
+    let swapchain_capabilities = program.surface.get_capabilities(&program.compute().adapter);
     let swapchain_format = swapchain_capabilities.formats[0];
     program.add_render_pipelines("window", &[], &[("window", ("vs_main", "fs_main"))], &[], &[Some(swapchain_format.into())], &[]);
 
-    let mut config = surface
-        .get_default_config(&compute.adapter, 400, 400)
+    let mut config = program.surface
+        .get_default_config(&program.compute().adapter, 400, 400)
         .unwrap();
     
-    surface.configure(&compute.device, &config);
+    program.surface.configure(&program.compute().device, &config);
 
     let window = &window;
 
@@ -32,14 +57,14 @@ fn main() {
                 WindowEvent::Resized(new_size) => {
                     config.width = new_size.width.max(1);
                     config.height = new_size.height.max(1);
-                    surface.configure(&compute.device, &config);
+                    program.surface.configure(&program.compute().device, &config);
                     window.request_redraw();
                 },
                 WindowEvent::RedrawRequested => {
-                    let frame = surface.get_current_texture().unwrap();
+                    let frame = program.surface.get_current_texture().unwrap();
                     let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-                    let mut encoder = compute.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    let mut encoder = program.compute().device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                         label: None
                     });
 
@@ -58,11 +83,11 @@ fn main() {
                             timestamp_writes: None,
                             occlusion_query_set: None,
                         });
-                        rpass.set_pipeline(&program.render_pipelines["window"]);
+                        rpass.set_pipeline(&program.storage().render_pipelines["window"]);
                         rpass.draw(0..3, 0..1);
                     }
 
-                    compute.queue.submit(Some(encoder.finish()));
+                    program.compute().queue.submit(Some(encoder.finish()));
 
                     frame.present();
                     window.request_redraw();

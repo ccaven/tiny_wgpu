@@ -1,11 +1,33 @@
-use tiny_wgpu::{Compute, ComputeProgram, BindGroupItem};
 use wgpu::BufferUsages;
 use pollster::FutureExt;
 
-fn main() {
-    let compute = Compute::init().block_on();
+use tiny_wgpu::{
+    BindGroupItem, Compute, ComputeProgram
+};
 
-    let mut program = ComputeProgram::new(compute.clone());
+struct ComputeExample<'a> {
+    storage: tiny_wgpu::Storage<'a>,
+    compute: tiny_wgpu::Compute
+}
+
+impl<'a> ComputeProgram<'a> for ComputeExample<'a> {
+    fn storage(&self) -> &tiny_wgpu::Storage<'a> {
+        &self.storage
+    }
+
+    fn storage_mut(&mut self) -> &mut tiny_wgpu::Storage<'a> {
+        &mut self.storage
+    }
+
+    fn compute(&self) -> &tiny_wgpu::Compute {
+        &self.compute
+    }
+}
+
+fn main() {
+    let compute = Compute::new().block_on();
+    let storage = Default::default();
+    let mut program = ComputeExample { compute, storage };
 
     program.add_module("compute", wgpu::include_wgsl!("compute.wgsl"));
 
@@ -34,7 +56,7 @@ fn main() {
         let data: Vec<u32> = (0u32..128).collect();
 
         program.compute.queue.write_buffer(
-            &program.buffers["example_buffer"], 
+            &program.storage().buffers["example_buffer"], 
             0, 
             bytemuck::cast_slice(&data)
         );
@@ -51,8 +73,8 @@ fn main() {
             timestamp_writes: None
         });
 
-        cpass.set_pipeline(&program.compute_pipelines["compute"]);
-        cpass.set_bind_group(0, &program.bind_groups["example_bind_group"], &[]);
+        cpass.set_pipeline(&program.storage().compute_pipelines["compute"]);
+        cpass.set_bind_group(0, &program.storage().bind_groups["example_bind_group"], &[]);
         cpass.dispatch_workgroups(8, 1, 1);
     }
 
@@ -73,7 +95,7 @@ fn main() {
     program.read_staging_buffer(
         "example_buffer", 
         &mut output_destination
-    ).block_on();
+    );
 
     let output: &[u32] = bytemuck::cast_slice(&output_destination);
 
