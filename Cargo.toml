@@ -6,7 +6,7 @@ license = "mit"
 description = "wgpu helper library"
 homepage = "https://github.com/ccaven/tiny_wgpu"
 repository = "https://github.com/ccaven/tiny_wgpu"
-readme = "https://github.com/ccaven/tiny_wgpu/blob/master/README.md"
+readme = "./README.md"
 
 [dependencies]
 flume = "0.11.0"
