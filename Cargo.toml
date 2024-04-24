@@ -2,7 +2,7 @@
 name = "tiny_wgpu"
 version = "0.1.0"
 edition = "2021"
-license = "mit"
+license-file = "./LICENSE.txt"
 description = "wgpu helper library"
 homepage = "https://github.com/ccaven/tiny_wgpu"
 repository = "https://github.com/ccaven/tiny_wgpu"
