@@ -2,8 +2,11 @@
 name = "tiny_wgpu"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "mit"
+description = "wgpu helper library"
+homepage = "https://github.com/ccaven/tiny_wgpu"
+repository = "https://github.com/ccaven/tiny_wgpu"
+readme = "https://github.com/ccaven/tiny_wgpu/blob/master/README.md"
 
 [dependencies]
 flume = "0.11.0"
