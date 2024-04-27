@@ -74,6 +74,7 @@ pub struct Storage<'a> {
     pub render_pipelines: HashMap<&'a str, wgpu::RenderPipeline>,
     
     staging_buffers: HashMap<&'a str, wgpu::Buffer>,
+    staging_senders: HashMap<&'a str, flume::Sender<Result<(), wgpu::BufferAsyncError>>>,
     staging_receivers: HashMap<&'a str, flume::Receiver<Result<(), wgpu::BufferAsyncError>>>
 }
 
@@ -90,6 +91,7 @@ impl<'a> Default for Storage<'a> {
             compute_pipelines: Default::default(), 
             render_pipelines: Default::default(), 
             staging_buffers: Default::default(), 
+            staging_senders: Default::default(),
             staging_receivers: Default::default()
         }
     }
@@ -125,6 +127,11 @@ pub trait ComputeProgram<'a> {
         });
 
         self.storage_mut().staging_buffers.insert(label, buffer);
+
+        let (sender, receiver) = flume::bounded(1);
+
+        self.storage_mut().staging_senders.insert(label, sender);
+        self.storage_mut().staging_receivers.insert(label, receiver);
     }
     
     fn add_texture<'b: 'a>(&mut self, label: &'b str, usage: wgpu::TextureUsages, format: wgpu::TextureFormat, size: wgpu::Extent3d) {
@@ -281,11 +288,10 @@ pub trait ComputeProgram<'a> {
         );
     }
     
-    fn prepare_staging_buffer<'b: 'a>(&mut self, label: &'b str) {
+    fn prepare_staging_buffer<'b: 'a>(&self, label: &'b str) {
         let slice = self.storage().staging_buffers[label].slice(..);
-        let (sender, receiver) = flume::bounded(1);
+        let sender = self.storage().staging_senders[label].clone();
         slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
-        self.storage_mut().staging_receivers.insert(label, receiver);
     }
     
     fn read_staging_buffer<'b: 'a>(&self, label: &'b str, dst: &mut [u8]) {
