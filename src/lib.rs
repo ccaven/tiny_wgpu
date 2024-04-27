@@ -288,7 +288,7 @@ pub trait ComputeProgram<'a> {
         self.storage_mut().staging_receivers.insert(label, receiver);
     }
     
-    fn read_staging_buffer<'b: 'a>(&mut self, label: &'b str, dst: &mut [u8]) {
+    fn read_staging_buffer<'b: 'a>(&self, label: &'b str, dst: &mut [u8]) {
         // Wait for the mapping to finish
         self.storage().staging_receivers[label].recv().unwrap().unwrap();
 
@@ -299,7 +299,7 @@ pub trait ComputeProgram<'a> {
         }
 
         // Unmap for the GPU to use again
-        self.storage_mut().staging_buffers[label].unmap();
+        self.storage().staging_buffers[label].unmap();
     }
     
     fn add_compute_pipelines<'b: 'a>(
