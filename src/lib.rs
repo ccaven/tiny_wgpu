@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use wgpu::{BufferUsages, ShaderStages};
 
 pub struct Compute {
@@ -9,7 +9,7 @@ pub struct Compute {
 }
 
 impl Compute {
-    pub async fn new() -> Self {
+    pub async fn new(features: wgpu::Features, limits: wgpu::Limits) -> Self {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { 
             backends: wgpu::Backends::PRIMARY, 
             flags: wgpu::InstanceFlags::empty(), 
@@ -18,17 +18,6 @@ impl Compute {
         });
     
         let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions::default()).await.unwrap();
-
-        let mut limits = wgpu::Limits::default();
-        limits.max_push_constant_size = 4;
-        limits.max_storage_buffers_per_shader_stage = 8;
-
-        let mut features = wgpu::Features::PUSH_CONSTANTS;
-
-        features |= wgpu::Features::BGRA8UNORM_STORAGE;
-        features |= wgpu::Features::TIMESTAMP_QUERY;
-        features |= wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
-        features |= wgpu::Features::CLEAR_TEXTURE;
 
         let (device, queue) = adapter.request_device(
             &wgpu::DeviceDescriptor {
@@ -63,19 +52,19 @@ pub struct PipelineItem<'a> {
 }
 
 pub struct Storage<'a> {
-    pub modules: HashMap<&'a str, wgpu::ShaderModule>,
-    pub buffers: HashMap<&'a str, wgpu::Buffer>,
-    pub textures: HashMap<&'a str, wgpu::Texture>,
-    pub texture_views: HashMap<&'a str, wgpu::TextureView>,
-    pub samplers: HashMap<&'a str, wgpu::Sampler>,
-    pub bind_groups: HashMap<&'a str, wgpu::BindGroup>,
-    pub bind_group_layouts: HashMap<&'a str, wgpu::BindGroupLayout>,
-    pub compute_pipelines: HashMap<&'a str, wgpu::ComputePipeline>,
-    pub render_pipelines: HashMap<&'a str, wgpu::RenderPipeline>,
+    pub modules: BTreeMap<&'a str, wgpu::ShaderModule>,
+    pub buffers: BTreeMap<&'a str, wgpu::Buffer>,
+    pub textures: BTreeMap<&'a str, wgpu::Texture>,
+    pub texture_views: BTreeMap<&'a str, wgpu::TextureView>,
+    pub samplers: BTreeMap<&'a str, wgpu::Sampler>,
+    pub bind_groups: BTreeMap<&'a str, wgpu::BindGroup>,
+    pub bind_group_layouts: BTreeMap<&'a str, wgpu::BindGroupLayout>,
+    pub compute_pipelines: BTreeMap<&'a str, wgpu::ComputePipeline>,
+    pub render_pipelines: BTreeMap<&'a str, wgpu::RenderPipeline>,
     
-    staging_buffers: HashMap<&'a str, wgpu::Buffer>,
-    staging_senders: HashMap<&'a str, flume::Sender<Result<(), wgpu::BufferAsyncError>>>,
-    staging_receivers: HashMap<&'a str, flume::Receiver<Result<(), wgpu::BufferAsyncError>>>
+    staging_buffers: BTreeMap<&'a str, wgpu::Buffer>,
+    staging_senders: BTreeMap<&'a str, flume::Sender<Result<(), wgpu::BufferAsyncError>>>,
+    staging_receivers: BTreeMap<&'a str, flume::Receiver<Result<(), wgpu::BufferAsyncError>>>
 }
 
 impl<'a> Default for Storage<'a> {

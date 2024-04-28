@@ -25,7 +25,11 @@ impl<'a> ComputeProgram<'a> for ComputeExample<'a> {
 }
 
 fn main() {
-    let compute = Compute::new().block_on();
+    let compute = Compute::new(
+        wgpu::Features::empty(),
+        wgpu::Limits::default()
+    ).block_on();
+    
     let storage = Default::default();
     let mut program = ComputeExample { compute, storage };
 

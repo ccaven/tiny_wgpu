@@ -1,6 +1,5 @@
 use pollster::FutureExt;
 use winit::{event::{Event, WindowEvent}, event_loop::EventLoop, window::Window};
-
 use tiny_wgpu::{Storage, Compute, ComputeProgram};
 
 struct WindowExample<'a> {
@@ -28,7 +27,10 @@ fn main() {
     let event_loop = EventLoop::new().unwrap();
     let window = Window::new(&event_loop).unwrap();
 
-    let compute = Compute::new().block_on();
+    let compute = Compute::new(
+        wgpu::Features::empty(),
+        wgpu::Limits::default()
+    ).block_on();
 
     let surface = compute.instance.create_surface(&window).unwrap();
 
