@@ -38,42 +38,42 @@ impl Compute {
     }
 }
 
-pub enum BindGroupItem<'a> {
-    StorageBuffer { label: &'a str, min_binding_size: u64, read_only: bool },
-    UniformBuffer { label: &'a str, min_binding_size: u64 },
-    Texture { label: &'a str },
-    StorageTexture { label: &'a str, access: wgpu::StorageTextureAccess },
-    Sampler { label: &'a str }
+pub enum BindGroupItem {
+    StorageBuffer { label: &'static str, min_binding_size: u64, read_only: bool },
+    UniformBuffer { label: &'static str, min_binding_size: u64 },
+    Texture { label: &'static str },
+    StorageTexture { label: &'static str, access: wgpu::StorageTextureAccess },
+    Sampler { label: &'static str }
 }
 
-pub struct ComputeKernel<'a> {
-    pub label: &'a str,
-    pub entry_point: &'a str
+pub struct ComputeKernel {
+    pub label: &'static str,
+    pub entry_point: &'static str
 }
 
-pub struct RenderKernel<'a> {
-    pub label: &'a str,
-    pub vertex: &'a str,
-    pub fragment: &'a str
+pub struct RenderKernel {
+    pub label: &'static str,
+    pub vertex: &'static str,
+    pub fragment: &'static str
 }
 
-pub struct Storage<'a> {
-    pub modules: HashMap<&'a str, wgpu::ShaderModule>,
-    pub buffers: HashMap<&'a str, wgpu::Buffer>,
-    pub textures: HashMap<&'a str, wgpu::Texture>,
-    pub texture_views: HashMap<&'a str, wgpu::TextureView>,
-    pub samplers: HashMap<&'a str, wgpu::Sampler>,
-    pub bind_groups: HashMap<&'a str, wgpu::BindGroup>,
-    pub bind_group_layouts: HashMap<&'a str, wgpu::BindGroupLayout>,
-    pub compute_pipelines: HashMap<&'a str, wgpu::ComputePipeline>,
-    pub render_pipelines: HashMap<&'a str, wgpu::RenderPipeline>,
+pub struct Storage {
+    pub modules: HashMap<&'static str, wgpu::ShaderModule>,
+    pub buffers: HashMap<&'static str, wgpu::Buffer>,
+    pub textures: HashMap<&'static str, wgpu::Texture>,
+    pub texture_views: HashMap<&'static str, wgpu::TextureView>,
+    pub samplers: HashMap<&'static str, wgpu::Sampler>,
+    pub bind_groups: HashMap<&'static str, wgpu::BindGroup>,
+    pub bind_group_layouts: HashMap<&'static str, wgpu::BindGroupLayout>,
+    pub compute_pipelines: HashMap<&'static str, wgpu::ComputePipeline>,
+    pub render_pipelines: HashMap<&'static str, wgpu::RenderPipeline>,
     
-    staging_buffers: HashMap<&'a str, wgpu::Buffer>,
-    staging_senders: HashMap<&'a str, flume::Sender<Result<(), wgpu::BufferAsyncError>>>,
-    staging_receivers: HashMap<&'a str, flume::Receiver<Result<(), wgpu::BufferAsyncError>>>
+    staging_buffers: HashMap<&'static str, wgpu::Buffer>,
+    staging_senders: HashMap<&'static str, flume::Sender<Result<(), wgpu::BufferAsyncError>>>,
+    staging_receivers: HashMap<&'static str, flume::Receiver<Result<(), wgpu::BufferAsyncError>>>
 }
 
-impl<'a> Default for Storage<'a> {
+impl Default for Storage {
     fn default() -> Self {
         Self { 
             modules: Default::default(), 
@@ -92,12 +92,12 @@ impl<'a> Default for Storage<'a> {
     }
 }
 
-pub trait ComputeProgram<'a> {
-    fn storage(&self) -> &Storage<'a>;
-    fn storage_mut(&mut self) -> &mut Storage<'a>;
+pub trait ComputeProgram {
+    fn storage(&self) -> &Storage;
+    fn storage_mut(&mut self) -> &mut Storage;
     fn compute(&self) -> &Compute;
 
-    fn add_buffer<'b: 'a>(&mut self, label: &'b str, usage: wgpu::BufferUsages, size: u64) {
+    fn add_buffer(&mut self, label: &'static str, usage: wgpu::BufferUsages, size: u64) {
         let buffer = self.compute().device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: size.into(),
@@ -108,12 +108,12 @@ pub trait ComputeProgram<'a> {
         self.storage_mut().buffers.insert(label, buffer);
     }
     
-    fn add_module<'b: 'a>(&mut self, label: &'b str, shader: wgpu::ShaderModuleDescriptor) {
+    fn add_module(&mut self, label: &'static str, shader: wgpu::ShaderModuleDescriptor) {
         let module = self.compute().device.create_shader_module(shader);
         self.storage_mut().modules.insert(label, module);
     }
     
-    fn add_staging_buffer<'b: 'a>(&mut self, label: &'b str) {
+    fn add_staging_buffer(&mut self, label: &'static str) {
         let buffer = self.compute().device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
@@ -129,7 +129,7 @@ pub trait ComputeProgram<'a> {
         self.storage_mut().staging_receivers.insert(label, receiver);
     }
     
-    fn add_texture<'b: 'a>(&mut self, label: &'b str, usage: wgpu::TextureUsages, format: wgpu::TextureFormat, size: wgpu::Extent3d) {
+    fn add_texture(&mut self, label: &'static str, usage: wgpu::TextureUsages, format: wgpu::TextureFormat, size: wgpu::Extent3d) {
         let texture = self.compute().device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size,
@@ -147,12 +147,12 @@ pub trait ComputeProgram<'a> {
         self.storage_mut().textures.insert(label, texture);
     }
     
-    fn add_sampler<'b: 'a>(&mut self, label: &'b str, descriptor: wgpu::SamplerDescriptor) {
+    fn add_sampler(&mut self, label: &'static str, descriptor: wgpu::SamplerDescriptor) {
         let sampler = self.compute().device.create_sampler(&descriptor);
         self.storage_mut().samplers.insert(label, sampler);
     }
     
-    fn add_bind_group<'b: 'a>(&mut self, label: &'b str, items: &[BindGroupItem]) {
+    fn add_bind_group(&mut self, label: &'static str, items: &[BindGroupItem]) {
         let mut bind_group_layout_entries = Vec::new();
         let mut bind_group_entries = Vec::new();
 
@@ -263,7 +263,7 @@ pub trait ComputeProgram<'a> {
         self.storage_mut().bind_group_layouts.insert(label, bind_group_layout);
     }
     
-    fn copy_buffer_to_buffer_full<'b: 'a>(&self, encoder: &mut wgpu::CommandEncoder, buffer_a: &'b str, buffer_b: &'b str) {
+    fn copy_buffer_to_buffer_full(&self, encoder: &mut wgpu::CommandEncoder, buffer_a: &'static str, buffer_b: &'static str) {
         encoder.copy_buffer_to_buffer(
             &self.storage().buffers[buffer_a], 
             0, 
@@ -273,7 +273,7 @@ pub trait ComputeProgram<'a> {
         );
     }
     
-    fn copy_buffer_to_staging<'b: 'a>(&self, encoder: &mut wgpu::CommandEncoder, label: &'b str) {
+    fn copy_buffer_to_staging(&self, encoder: &mut wgpu::CommandEncoder, label: &'static str) {
         encoder.copy_buffer_to_buffer(
             &self.storage().buffers[label], 
             0, 
@@ -283,13 +283,13 @@ pub trait ComputeProgram<'a> {
         );
     }
     
-    fn prepare_staging_buffer<'b: 'a>(&self, label: &'b str) {
+    fn prepare_staging_buffer(&self, label: &'static str) {
         let slice = self.storage().staging_buffers[label].slice(..);
         let sender = self.storage().staging_senders[label].clone();
         slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
     }
     
-    fn read_staging_buffer<'b: 'a>(&self, label: &'b str, dst: &mut [u8]) {
+    fn read_staging_buffer(&self, label: &'static str, dst: &mut [u8]) {
         // Wait for the mapping to finish
         self.storage().staging_receivers[label].recv().unwrap().unwrap();
 
@@ -303,11 +303,11 @@ pub trait ComputeProgram<'a> {
         self.storage().staging_buffers[label].unmap();
     }
     
-    fn add_compute_pipelines<'b: 'a>(
+    fn add_compute_pipelines(
         &mut self,
-        module: &'b str,
-        bind_groups: &[&'b str],
-        kernels: &[ComputeKernel<'b>],
+        module: &'static str,
+        bind_groups: &[&'static str],
+        kernels: &[ComputeKernel],
         push_constant_ranges: &[wgpu::PushConstantRange],
         compilation_options: Option<wgpu::PipelineCompilationOptions>
     ) {
@@ -340,12 +340,17 @@ pub trait ComputeProgram<'a> {
             self.storage_mut().compute_pipelines.insert(&kernel.label, pipeline);
         }
     }
-    
-    fn add_render_pipelines<'b: 'a>(
+
+    fn add_render_pipelines_2(
         &mut self,
-        module: &'b str,
-        bind_groups: &[&'b str],
-        kernels: &[RenderKernel<'b>],
+        
+    ) {}
+    
+    fn add_render_pipelines(
+        &mut self,
+        module: &'static str,
+        bind_groups: &[&'static str],
+        kernels: &[RenderKernel],
         push_constant_ranges: &[wgpu::PushConstantRange],
         targets: &[Option<wgpu::ColorTargetState>],
         vertex_buffer_layouts: &[wgpu::VertexBufferLayout],

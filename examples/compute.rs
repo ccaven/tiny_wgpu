@@ -5,17 +5,17 @@ use tiny_wgpu::{
     BindGroupItem, Compute, ComputeKernel, ComputeProgram
 };
 
-struct ComputeExample<'a> {
-    storage: tiny_wgpu::Storage<'a>,
+struct ComputeExample {
+    storage: tiny_wgpu::Storage,
     compute: tiny_wgpu::Compute
 }
 
-impl<'a> ComputeProgram<'a> for ComputeExample<'a> {
-    fn storage(&self) -> &tiny_wgpu::Storage<'a> {
+impl ComputeProgram for ComputeExample {
+    fn storage(&self) -> &tiny_wgpu::Storage {
         &self.storage
     }
 
-    fn storage_mut(&mut self) -> &mut tiny_wgpu::Storage<'a> {
+    fn storage_mut(&mut self) -> &mut tiny_wgpu::Storage {
         &mut self.storage
     }
 

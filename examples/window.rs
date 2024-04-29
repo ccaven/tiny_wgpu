@@ -3,17 +3,17 @@ use winit::{event::{Event, WindowEvent}, event_loop::EventLoop, window::Window};
 use tiny_wgpu::{Compute, ComputeProgram, RenderKernel, Storage};
 
 struct WindowExample<'a> {
-    storage: tiny_wgpu::Storage<'a>,
+    storage: tiny_wgpu::Storage,
     compute: tiny_wgpu::Compute,
     surface: wgpu::Surface<'a>
 }
 
-impl<'a> ComputeProgram<'a> for WindowExample<'a> {
-    fn storage(&self) -> &Storage<'a> {
+impl ComputeProgram for WindowExample<'_> {
+    fn storage(&self) -> &Storage {
         &self.storage
     }
 
-    fn storage_mut(&mut self) -> &mut Storage<'a> {
+    fn storage_mut(&mut self) -> &mut Storage {
         &mut self.storage
     }
 
