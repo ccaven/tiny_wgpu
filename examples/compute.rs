@@ -2,7 +2,7 @@ use wgpu::BufferUsages;
 use pollster::FutureExt;
 
 use tiny_wgpu::{
-    BindGroupItem, Compute, ComputeProgram
+    BindGroupItem, Compute, ComputeKernel, ComputeProgram
 };
 
 struct ComputeExample<'a> {
@@ -50,9 +50,8 @@ fn main() {
 
     {
         let bind_groups = &["example_bind_group"];
-        let entry_points = &["compute"];
         let push_constant_ranges = &[];
-        program.add_compute_pipelines("compute", bind_groups, entry_points, push_constant_ranges);
+        program.add_compute_pipelines("compute", bind_groups, &[ComputeKernel { label: "compute", entry_point: "compute" }], push_constant_ranges, None);
     }
     
     // Write data to GPU

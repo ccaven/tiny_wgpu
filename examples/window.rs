@@ -1,6 +1,6 @@
 use pollster::FutureExt;
 use winit::{event::{Event, WindowEvent}, event_loop::EventLoop, window::Window};
-use tiny_wgpu::{Storage, Compute, ComputeProgram};
+use tiny_wgpu::{Compute, ComputeProgram, RenderKernel, Storage};
 
 struct WindowExample<'a> {
     storage: tiny_wgpu::Storage<'a>,
@@ -42,7 +42,16 @@ fn main() {
 
     let swapchain_capabilities = program.surface.get_capabilities(&program.compute().adapter);
     let swapchain_format = swapchain_capabilities.formats[0];
-    program.add_render_pipelines("window", &[], &[("window", ("vs_main", "fs_main"))], &[], &[Some(swapchain_format.into())], &[]);
+    program.add_render_pipelines(
+        "window",
+         &[],
+         &[RenderKernel { label: "window", vertex: "vs_main", fragment: "fs_main" }], 
+         &[], 
+         &[Some(swapchain_format.into())], 
+         &[], 
+         None, 
+         None
+    );
 
     let mut config = program.surface
         .get_default_config(&program.compute().adapter, 400, 400)

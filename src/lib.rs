@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use wgpu::{BufferUsages, ShaderStages};
 
 pub struct Compute {
@@ -46,25 +46,31 @@ pub enum BindGroupItem<'a> {
     Sampler { label: &'a str }
 }
 
-pub struct PipelineItem<'a> {
+pub struct ComputeKernel<'a> {
     pub label: &'a str,
     pub entry_point: &'a str
 }
 
+pub struct RenderKernel<'a> {
+    pub label: &'a str,
+    pub vertex: &'a str,
+    pub fragment: &'a str
+}
+
 pub struct Storage<'a> {
-    pub modules: BTreeMap<&'a str, wgpu::ShaderModule>,
-    pub buffers: BTreeMap<&'a str, wgpu::Buffer>,
-    pub textures: BTreeMap<&'a str, wgpu::Texture>,
-    pub texture_views: BTreeMap<&'a str, wgpu::TextureView>,
-    pub samplers: BTreeMap<&'a str, wgpu::Sampler>,
-    pub bind_groups: BTreeMap<&'a str, wgpu::BindGroup>,
-    pub bind_group_layouts: BTreeMap<&'a str, wgpu::BindGroupLayout>,
-    pub compute_pipelines: BTreeMap<&'a str, wgpu::ComputePipeline>,
-    pub render_pipelines: BTreeMap<&'a str, wgpu::RenderPipeline>,
+    pub modules: HashMap<&'a str, wgpu::ShaderModule>,
+    pub buffers: HashMap<&'a str, wgpu::Buffer>,
+    pub textures: HashMap<&'a str, wgpu::Texture>,
+    pub texture_views: HashMap<&'a str, wgpu::TextureView>,
+    pub samplers: HashMap<&'a str, wgpu::Sampler>,
+    pub bind_groups: HashMap<&'a str, wgpu::BindGroup>,
+    pub bind_group_layouts: HashMap<&'a str, wgpu::BindGroupLayout>,
+    pub compute_pipelines: HashMap<&'a str, wgpu::ComputePipeline>,
+    pub render_pipelines: HashMap<&'a str, wgpu::RenderPipeline>,
     
-    staging_buffers: BTreeMap<&'a str, wgpu::Buffer>,
-    staging_senders: BTreeMap<&'a str, flume::Sender<Result<(), wgpu::BufferAsyncError>>>,
-    staging_receivers: BTreeMap<&'a str, flume::Receiver<Result<(), wgpu::BufferAsyncError>>>
+    staging_buffers: HashMap<&'a str, wgpu::Buffer>,
+    staging_senders: HashMap<&'a str, flume::Sender<Result<(), wgpu::BufferAsyncError>>>,
+    staging_receivers: HashMap<&'a str, flume::Receiver<Result<(), wgpu::BufferAsyncError>>>
 }
 
 impl<'a> Default for Storage<'a> {
@@ -301,40 +307,9 @@ pub trait ComputeProgram<'a> {
         &mut self,
         module: &'b str,
         bind_groups: &[&'b str],
-        entry_points: &[&'b str],
-        push_constant_ranges: &[wgpu::PushConstantRange]
-    ) {
-        let bind_group_layouts: Vec<_> = bind_groups
-            .iter()
-            .map(|x| &self.storage().bind_group_layouts[x])
-            .collect();
-
-        let pipeline_layout = self.compute().device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &bind_group_layouts,
-            push_constant_ranges
-        });                
-        
-        for entry_point in entry_points {
-            let pipeline = self.compute().device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: None,
-                layout: Some(&pipeline_layout),
-                module: &self.storage().modules[module],
-                entry_point: &entry_point
-            });
-
-            self.storage_mut().compute_pipelines.insert(&entry_point, pipeline);
-        }
-    }
-    
-    fn add_render_pipelines<'b: 'a>(
-        &mut self,
-        module: &'b str,
-        bind_groups: &[&'b str],
-        entry_points: &[(&'b str, (&'b str, &'b str))],
+        kernels: &[ComputeKernel<'b>],
         push_constant_ranges: &[wgpu::PushConstantRange],
-        targets: &[Option<wgpu::ColorTargetState>],
-        vertex_buffer_layouts: &[wgpu::VertexBufferLayout]
+        compilation_options: Option<wgpu::PipelineCompilationOptions>
     ) {
         let bind_group_layouts: Vec<_> = bind_groups
             .iter()
@@ -347,19 +322,66 @@ pub trait ComputeProgram<'a> {
             push_constant_ranges
         });
 
-        for (name, (vs_entry_point, fs_entry_point)) in entry_points {
+        let empty_map = HashMap::new();
+        let compilation_options = compilation_options.unwrap_or(wgpu::PipelineCompilationOptions {
+            zero_initialize_workgroup_memory: true,
+            constants: &empty_map
+        });  
+        
+        for kernel in kernels {
+            let pipeline = self.compute().device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: None,
+                layout: Some(&pipeline_layout),
+                module: &self.storage().modules[module],
+                entry_point: &kernel.entry_point,
+                compilation_options: compilation_options.clone()
+            });
+
+            self.storage_mut().compute_pipelines.insert(&kernel.label, pipeline);
+        }
+    }
+    
+    fn add_render_pipelines<'b: 'a>(
+        &mut self,
+        module: &'b str,
+        bind_groups: &[&'b str],
+        kernels: &[RenderKernel<'b>],
+        push_constant_ranges: &[wgpu::PushConstantRange],
+        targets: &[Option<wgpu::ColorTargetState>],
+        vertex_buffer_layouts: &[wgpu::VertexBufferLayout],
+        vertex_compilation_options: Option<wgpu::PipelineCompilationOptions>,
+        fragment_compilation_options: Option<wgpu::PipelineCompilationOptions>
+    ) {
+        let bind_group_layouts: Vec<_> = bind_groups
+            .iter()
+            .map(|x| &self.storage().bind_group_layouts[x])
+            .collect();
+
+        let pipeline_layout = self.compute().device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &bind_group_layouts,
+            push_constant_ranges
+        });
+
+        let empty_map = HashMap::new();
+        let vertex_compilation_options = vertex_compilation_options.unwrap_or(wgpu::PipelineCompilationOptions { constants: &empty_map, zero_initialize_workgroup_memory: true });
+        let fragment_compilation_options = fragment_compilation_options.unwrap_or(wgpu::PipelineCompilationOptions { constants: &empty_map, zero_initialize_workgroup_memory: true });
+
+        for kernel in kernels {
             let render_pipeline = self.compute().device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: None,
                 layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &self.storage().modules[module],
-                    entry_point: &vs_entry_point,
-                    buffers: vertex_buffer_layouts
+                    entry_point: &kernel.vertex,
+                    buffers: vertex_buffer_layouts,
+                    compilation_options: vertex_compilation_options.clone()
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &self.storage().modules[module],
-                    entry_point: &fs_entry_point,
-                    targets
+                    entry_point: &kernel.fragment,
+                    targets,
+                    compilation_options: fragment_compilation_options.clone()
                 }),
                 primitive: wgpu::PrimitiveState::default(),
                 depth_stencil: None,
@@ -367,7 +389,7 @@ pub trait ComputeProgram<'a> {
                 multiview: None,
             });
 
-            self.storage_mut().render_pipelines.insert(name, render_pipeline);
+            self.storage_mut().render_pipelines.insert(&kernel.label, render_pipeline);
         }
     }
 }
