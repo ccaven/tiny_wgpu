@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 use wgpu::{BufferUsages, ShaderStages};
 
 pub struct Compute {
-    pub instance: wgpu::Instance,
-    pub adapter: wgpu::Adapter,
-    pub device: wgpu::Device,
-    pub queue: wgpu::Queue
+    pub instance: Arc<wgpu::Instance>,
+    pub adapter: Arc<wgpu::Adapter>,
+    pub device: Arc<wgpu::Device>,
+    pub queue: Arc<wgpu::Queue>
 }
 
 impl Compute {
@@ -30,10 +30,10 @@ impl Compute {
         ).await.unwrap();
 
         Self {
-            instance,
-            adapter,
-            device,
-            queue
+            instance: Arc::new(instance),
+            adapter: Arc::new(adapter),
+            device: Arc::new(device),
+            queue: Arc::new(queue)
         }
     }
 }

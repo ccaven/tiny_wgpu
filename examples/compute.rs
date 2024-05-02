@@ -2,12 +2,12 @@ use wgpu::BufferUsages;
 use pollster::FutureExt;
 
 use tiny_wgpu::{
-    BindGroupItem, Compute, ComputeKernel, ComputeProgram
+    BindGroupItem, Compute, ComputeKernel, ComputeProgram, Storage
 };
 
 struct ComputeExample {
-    storage: tiny_wgpu::Storage,
-    compute: tiny_wgpu::Compute
+    storage: Storage,
+    compute: Compute
 }
 
 impl ComputeProgram for ComputeExample {
