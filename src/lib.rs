@@ -42,6 +42,7 @@ pub enum BindGroupItem {
     StorageBuffer { label: &'static str, min_binding_size: u64, read_only: bool },
     UniformBuffer { label: &'static str, min_binding_size: u64 },
     Texture { label: &'static str },
+    TextureView { label: &'static str, sample_type: wgpu::TextureSampleType },
     StorageTexture { label: &'static str, access: wgpu::StorageTextureAccess },
     Sampler { label: &'static str }
 }
@@ -201,6 +202,23 @@ pub trait ComputeProgram {
                         visibility: wgpu::ShaderStages::all(),
                         ty: wgpu::BindingType::Texture { 
                             sample_type,
+                            view_dimension: wgpu::TextureViewDimension::D2, 
+                            multisampled: false
+                        },
+                        count: None
+                    });
+
+                    bind_group_entries.push(wgpu::BindGroupEntry {
+                        binding: i as u32,
+                        resource: wgpu::BindingResource::TextureView(&self.storage().texture_views[label])
+                    });
+                },
+                BindGroupItem::TextureView { label, sample_type } => {
+                    bind_group_layout_entries.push(wgpu::BindGroupLayoutEntry {
+                        binding: i as u32,
+                        visibility: wgpu::ShaderStages::all(),
+                        ty: wgpu::BindingType::Texture { 
+                            sample_type: *sample_type,
                             view_dimension: wgpu::TextureViewDimension::D2, 
                             multisampled: false
                         },
