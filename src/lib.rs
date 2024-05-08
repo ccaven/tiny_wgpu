@@ -69,9 +69,9 @@ pub struct Storage {
     pub compute_pipelines: HashMap<&'static str, wgpu::ComputePipeline>,
     pub render_pipelines: HashMap<&'static str, wgpu::RenderPipeline>,
     
-    staging_buffers: HashMap<&'static str, wgpu::Buffer>,
-    staging_senders: HashMap<&'static str, flume::Sender<Result<(), wgpu::BufferAsyncError>>>,
-    staging_receivers: HashMap<&'static str, flume::Receiver<Result<(), wgpu::BufferAsyncError>>>
+    pub staging_buffers: HashMap<&'static str, wgpu::Buffer>,
+    pub staging_senders: HashMap<&'static str, flume::Sender<Result<(), wgpu::BufferAsyncError>>>,
+    pub staging_receivers: HashMap<&'static str, flume::Receiver<Result<(), wgpu::BufferAsyncError>>>
 }
 
 impl Default for Storage {

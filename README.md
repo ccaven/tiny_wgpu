@@ -6,7 +6,7 @@ Helper library to reduce the amount of boilerplate code when using `wgpu`.
 
 Add these lines to your `Cargo.toml`:
 ```toml
-tiny_wgpu = "0.1.3"
+tiny_wgpu = "0.1.8"
 ```
 
 ## Implementation notes
