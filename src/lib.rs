@@ -1,4 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
+use bytemuck::{bytes_of_mut, Pod};
 use wgpu::{BufferUsages, ShaderStages};
 
 pub struct Compute {
@@ -307,13 +308,18 @@ pub trait ComputeProgram {
         slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
     }
     
-    fn read_staging_buffer(&self, label: &'static str, dst: &mut [u8]) {
+    fn read_staging_buffer<T: Pod>(&self, label: &'static str, dst: &mut [T]) {
         // Wait for the mapping to finish
         self.storage().staging_receivers[label].recv().unwrap().unwrap();
 
         // Read data
         {
-            let data = self.storage().staging_buffers[label].slice(..).get_mapped_range();
+            let data_size = std::mem::size_of::<T>();
+            let data_len = dst.len();
+            let num_bytes = (data_len * data_size) as u64;
+
+            let dst = bytemuck::cast_slice_mut(dst);
+            let data = self.storage().staging_buffers[label].slice(..num_bytes).get_mapped_range();
             dst.copy_from_slice(&data);
         }
 

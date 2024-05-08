@@ -93,18 +93,15 @@ fn main() {
     program.compute.device.poll(wgpu::Maintain::Wait);
 
     // Collect output data
-    let mut output_destination = vec![0u8; 128 * 4];
+    let mut output = vec![0u32; 128];
 
     program.read_staging_buffer(
         "example_buffer", 
-        &mut output_destination
+        &mut output[..]
     );
-
-    let output: &[u32] = bytemuck::cast_slice(&output_destination);
 
     for i in 0..128 {
         print!("{} ", output[i]);
-
         assert_eq!(output[i], (i as u32) * 2);
     }
 }
