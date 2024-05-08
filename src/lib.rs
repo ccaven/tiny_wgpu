@@ -1,5 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
-use bytemuck::{bytes_of_mut, Pod};
+use bytemuck::Pod;
 use wgpu::{BufferUsages, ShaderStages};
 
 pub struct Compute {
